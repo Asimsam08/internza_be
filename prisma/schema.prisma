@@ -15,6 +15,19 @@ enum Role {
   STUDENT
   REVIEWER
   SUPER_ADMIN
+  COLLEGE_ADMIN
+}
+
+enum InviteType {
+  COLLEGE_ADMIN
+  REVIEWER
+}
+
+enum CohortStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
 }
 
 enum DurationType {
@@ -22,6 +35,13 @@ enum DurationType {
   EIGHT_WEEKS
   TWELVE_WEEKS
   CUSTOM
+}
+
+enum PlanStatus {
+  ACTIVE
+  AT_RISK
+  NEEDS_ATTENTION
+  COMPLETED
 }
 
 enum TemplateStatus {
@@ -40,6 +60,7 @@ enum PlanProjectStatus {
 
 enum TaskStatus {
   DRAFT
+  LOCKED
   SUBMITTED
   UNDER_REVIEW
   APPROVED
@@ -77,6 +98,7 @@ enum AuditAction {
   UNASSIGN
   PUBLISH
   UNPUBLISH
+  UNLOCK
 }
 
 // Core Models
@@ -85,17 +107,110 @@ model User {
   email         String   @unique
   password      String
   role          Role     @default(STUDENT)
+  collegeId     String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   // Relations
-  studentProfile StudentProfile?
+  college         College?         @relation("CollegeUsers", fields: [collegeId], references: [id])
+  primaryCollege  College?         @relation("CollegePrimaryAdmin")
+  studentProfile  StudentProfile?
   reviewerProfile ReviewerProfile?
   auditLogs       AuditLog[]
+  cohortMembers   CohortMember[]
 
   @@index([email])
   @@index([role])
+  @@index([collegeId])
+}
+
+model College {
+  id              String   @id @default(cuid())
+  name            String
+  domain          String   @unique
+  logoUrl         String?
+  primaryAdminId  String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  primaryAdmin User?         @relation("CollegePrimaryAdmin", fields: [primaryAdminId], references: [id])
+  users        User[]        @relation("CollegeUsers")
+  cohorts      Cohort[]
+  inviteTokens InviteToken[]
+
+  @@index([domain])
+}
+
+model Cohort {
+  id         String       @id @default(cuid())
+  collegeId  String
+  name       String
+  templateId String
+  startDate  DateTime
+  endDate    DateTime
+  status     CohortStatus @default(DRAFT)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  college   College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  template  ProjectTemplate  @relation(fields: [templateId], references: [id])
+  members   CohortMember[]
+  reviewers CohortReviewer[]
+  plans     InternshipPlan[]
+
+  @@index([collegeId])
+  @@index([status])
+  @@index([templateId])
+}
+
+model CohortMember {
+  id        String   @id @default(cuid())
+  cohortId  String
+  userId    String
+  studentId String?
+  externalStudentId String?
+  createdAt DateTime @default(now())
+
+  cohort  Cohort          @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  student StudentProfile? @relation(fields: [studentId], references: [id])
+
+  @@unique([cohortId, userId])
+  @@index([cohortId])
+  @@index([userId])
+}
+
+model CohortReviewer {
+  id         String   @id @default(cuid())
+  cohortId   String
+  reviewerId String
+  createdAt  DateTime @default(now())
+
+  cohort   Cohort          @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  reviewer ReviewerProfile @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, reviewerId])
+  @@index([cohortId])
+  @@index([reviewerId])
+}
+
+model InviteToken {
+  id        String     @id @default(cuid())
+  collegeId String
+  email     String
+  token     String     @unique
+  type      InviteType @default(COLLEGE_ADMIN)
+  expiresAt DateTime
+  used      Boolean    @default(false)
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+
+  @@index([collegeId])
+  @@index([email])
+  @@index([token])
 }
 
 model StudentProfile {
@@ -119,6 +234,7 @@ model StudentProfile {
   // Relations
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   internshipPlans InternshipPlan[]
+  cohortMembers   CohortMember[]
 
   @@index([userId])
 }
@@ -142,6 +258,7 @@ model ReviewerProfile {
   projectTemplates  ProjectTemplate[]
   planProjects      PlanProject[]
   reviews           Review[]
+  cohortAssignments CohortReviewer[]
 
   @@index([userId])
   @@index([isAvailable])
@@ -173,6 +290,7 @@ model ProjectTemplate {
   reviewer      ReviewerProfile?  @relation(fields: [reviewerId], references: [id])
   planProjects  PlanProject[]
   templateTasks TemplateTask[]
+  cohorts       Cohort[]
 
   @@index([status])
   @@index([reviewerId])
@@ -212,18 +330,24 @@ model InternshipPlan {
   sequentialCompletion Boolean     @default(true)
   completedWeeks      Int          @default(0)
   isCompleted         Boolean      @default(false)
+  status              PlanStatus   @default(ACTIVE)
+  overdueTaskCount    Int          @default(0)
   startedAt           DateTime     @default(now())
   completedAt         DateTime?
+  cohortId            String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
   // Relations
   student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohort       Cohort?        @relation(fields: [cohortId], references: [id])
   planProjects PlanProject[]
   certificate  Certificate?
 
   @@index([studentId])
   @@index([isCompleted])
+  @@index([status])
+  @@index([cohortId])
 }
 
 // Projects in a Plan
@@ -281,8 +405,10 @@ model Task {
   order       Int        // Order within the milestone
   durationDays Int       // Estimated days to complete (from template)
   status      TaskStatus @default(DRAFT)
-  startDate   DateTime?  // Computed start date based on plan
-  dueDate     DateTime?  // Computed due date based on duration
+  startAt     DateTime?  // When the task becomes available
+  dueAt       DateTime?  // When the task is due
+  isOverdue   Boolean    @default(false)
+  isLocked    Boolean    @default(true) // Task is locked until previous task is approved
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -292,7 +418,9 @@ model Task {
 
   @@index([milestoneId])
   @@index([status])
-  @@index([dueDate])
+  @@index([dueAt])
+  @@index([isOverdue])
+  @@index([isLocked])
 }
 
 // Submissions

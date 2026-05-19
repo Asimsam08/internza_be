@@ -61,13 +61,14 @@ export class AuthService {
     })
 
     // Generate tokens
-    const tokens = await this.generateTokens(user.id, user.role)
+    const tokens = await this.generateTokens(user.id, user.role, null)
 
     return {
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
+        collegeId: null,
         studentProfile: user.studentProfile,
       },
       tokens,
@@ -83,6 +84,7 @@ export class AuthService {
       include: {
         studentProfile: true,
         reviewerProfile: true,
+        college: { select: { id: true, name: true, domain: true, logoUrl: true } },
       },
     })
 
@@ -103,13 +105,14 @@ export class AuthService {
     }
 
     // Generate tokens
-    const tokens = await this.generateTokens(user.id, user.role)
+    const tokens = await this.generateTokens(user.id, user.role, user.collegeId)
 
     return {
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
+        collegeId: user.collegeId,
         studentProfile: user.studentProfile,
         reviewerProfile: user.reviewerProfile,
       },
@@ -138,13 +141,14 @@ export class AuthService {
       }
 
       // Generate new tokens
-      const tokens = await this.generateTokens(user.id, user.role)
+      const tokens = await this.generateTokens(user.id, user.role, user.collegeId)
 
       return {
         user: {
           id: user.id,
           email: user.email,
           role: user.role,
+          collegeId: user.collegeId,
           studentProfile: user.studentProfile,
           reviewerProfile: user.reviewerProfile,
         },
@@ -155,6 +159,29 @@ export class AuthService {
     }
   }
 
+  async signinWithUserId(userId: string): Promise<{ user: any; tokens: { accessToken: string; refreshToken: string } }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true, reviewerProfile: true, college: true },
+    })
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive')
+    }
+    const tokens = await this.generateTokens(user.id, user.role, user.collegeId)
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        collegeId: user.collegeId,
+        college: user.college,
+        studentProfile: user.studentProfile,
+        reviewerProfile: user.reviewerProfile,
+      },
+      tokens,
+    }
+  }
+
   async getCurrentUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -162,10 +189,14 @@ export class AuthService {
         id: true,
         email: true,
         role: true,
+        collegeId: true,
         isActive: true,
         createdAt: true,
         studentProfile: true,
         reviewerProfile: true,
+        college: {
+          select: { id: true, name: true, domain: true, logoUrl: true },
+        },
       },
     })
 
@@ -179,8 +210,9 @@ export class AuthService {
   private async generateTokens(
     userId: string,
     role: Role,
+    collegeId?: string | null,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, role }
+    const payload = { sub: userId, role, collegeId: collegeId ?? null }
 
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: process.env.JWT_EXPIRES_IN || '1h',

@@ -5,6 +5,9 @@ import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './modules/auth/auth.module'
 import { StudentsModule } from './modules/students/students.module'
 import { AdminModule } from './modules/admin/admin.module'
+import { CollegesModule } from './modules/colleges/colleges.module'
+import { InviteModule } from './modules/invite/invite.module'
+import { CollegeAdminModule } from './modules/college-admin/college-admin.module'
 // import { UsersModule } from './modules/users/users.module'
 // import { ReviewersModule } from './modules/reviewers/reviewers.module'
 // import { InternshipsModule } from './modules/internships/internships.module'
@@ -32,6 +35,9 @@ import { AdminModule } from './modules/admin/admin.module'
     AuthModule,
     StudentsModule,
     AdminModule,
+    CollegesModule,
+    InviteModule,
+    CollegeAdminModule,
     // UsersModule,
     // ReviewersModule,
     // InternshipsModule,

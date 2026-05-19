@@ -32,6 +32,7 @@ export function parsePlanProjectStatus(status: string): PlanProjectStatus {
 export function transformTaskStatus(status: TaskStatus): string {
   const statusMap: Record<TaskStatus, string> = {
     [TaskStatus.DRAFT]: 'draft',
+    [TaskStatus.LOCKED]: 'locked',
     [TaskStatus.SUBMITTED]: 'submitted',
     [TaskStatus.UNDER_REVIEW]: 'under_review',
     [TaskStatus.APPROVED]: 'approved',
@@ -45,6 +46,7 @@ export function transformTaskStatus(status: TaskStatus): string {
 export function parseTaskStatus(status: string): TaskStatus {
   const statusMap: Record<string, TaskStatus> = {
     draft: TaskStatus.DRAFT,
+    locked: TaskStatus.LOCKED,
     submitted: TaskStatus.SUBMITTED,
     under_review: TaskStatus.UNDER_REVIEW,
     approved: TaskStatus.APPROVED,
