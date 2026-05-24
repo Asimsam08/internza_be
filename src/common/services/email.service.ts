@@ -49,6 +49,24 @@ export class EmailService {
     return this.send({ to, subject, html })
   }
 
+  async sendStudentInvite(params: {
+    to: string
+    cohortName: string
+    collegeName: string
+    inviteUrl: string
+  }): Promise<boolean> {
+    const { to, cohortName, collegeName, inviteUrl } = params
+    const subject = `You're enrolled in ${cohortName} — ${collegeName}`
+    const html = `
+      <p>Hello,</p>
+      <p>You have been enrolled in cohort <strong>${cohortName}</strong> at <strong>${collegeName}</strong>.</p>
+      <p><a href="${inviteUrl}">Set up your account and sign in</a></p>
+      <p>This link expires in 7 days.</p>
+      <p>— Internza</p>
+    `
+    return this.send({ to, subject, html })
+  }
+
   async sendCohortStudentInvite(params: {
     to: string
     cohortName: string

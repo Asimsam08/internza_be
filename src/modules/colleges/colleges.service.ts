@@ -7,11 +7,10 @@ import {
   Logger,
 } from '@nestjs/common'
 import { PrismaService } from '@/prisma/prisma.service'
-import { StorageService } from '@/common/services/storage.service'
-import { EmailService } from '@/common/services/email.service'
+import { SupabaseStorageService } from '@/common/services/supabase-storage.service'
+import { resolveStoragePublicUrl } from '@/common/helper'
+import { InviteTokenService } from '@/common/services/invite-token.service'
 import { InviteType } from '@prisma/client'
-import { randomBytes } from 'crypto'
-import { ConfigService } from '@nestjs/config'
 import { CreateCollegeDto } from './dto/create-college.dto'
 
 @Injectable()
@@ -20,9 +19,8 @@ export class CollegesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
-    private readonly email: EmailService,
-    private readonly config: ConfigService,
+    private readonly storage: SupabaseStorageService,
+    private readonly invites: InviteTokenService,
   ) {}
 
   async listColleges() {
@@ -42,7 +40,7 @@ export class CollegesService {
         id: c.id,
         name: c.name,
         domain: c.domain,
-        logoUrl: c.logoUrl,
+        logoUrl: this.resolveLogoUrl(c.logoUrl),
         cohortsCount: c._count.cohorts,
         studentsTotal,
         createdAt: c.createdAt,
@@ -62,20 +60,18 @@ export class CollegesService {
       },
     })
 
-    let logoUrl: string | null = null
+    let logoPath: string | null = null
     if (logo) {
-      const relative = await this.storage.saveCollegeLogo(college.id, logo)
-      logoUrl = this.storage.getPublicUrl(relative)
-      await this.prisma.college.update({
-        where: { id: college.id },
-        data: { logoUrl: relative },
-      })
+      logoPath = await this.uploadCollegeLogoFile(college.id, logo)
     }
 
     const invite = await this.createInviteToken(college.id, dto.primaryAdminEmail, InviteType.COLLEGE_ADMIN)
 
     return {
-      college: { ...college, logoUrl: logoUrl ?? college.logoUrl },
+      college: {
+        ...college,
+        logoUrl: this.resolveLogoUrl(logoPath ?? college.logoUrl),
+      },
       invite: invite ? { inviteUrl: invite.inviteUrl, expiresAt: invite.expiresAt } : null,
       inviteSent: invite.emailSent,
     }
@@ -89,37 +85,10 @@ export class CollegesService {
   }
 
   async createInviteToken(collegeId: string, email: string, type: InviteType) {
-    const normalizedEmail = email.trim().toLowerCase()
-    const token = randomBytes(32).toString('hex')
-    const expiresAt = new Date()
-    expiresAt.setDate(expiresAt.getDate() + 7)
-
-    await this.prisma.inviteToken.updateMany({
-      where: { collegeId, email: normalizedEmail, type, used: false },
-      data: { used: true, usedAt: new Date() },
-    })
-
-    await this.prisma.inviteToken.create({
-      data: { collegeId, email: normalizedEmail, token, type, expiresAt },
-    })
-
-    const college = await this.prisma.college.findUnique({ where: { id: collegeId } })
-    const frontend = this.config.get<string>('FRONTEND_URL') || 'http://localhost:3001'
-    const inviteUrl = `${frontend}/invite/${collegeId}/${token}`
-    const roleLabel = type === InviteType.COLLEGE_ADMIN ? 'College Admin' : 'Reviewer'
-
-    const emailSent = await this.email.sendMagicInvite({
-      to: normalizedEmail,
-      collegeName: college?.name || 'College',
-      inviteUrl,
-      roleLabel,
-    })
-
-    if (!emailSent) {
-      this.logger.warn(`Invite created but email not sent to ${normalizedEmail}. URL: ${inviteUrl}`)
+    if (type !== InviteType.COLLEGE_ADMIN && type !== InviteType.REVIEWER) {
+      throw new BadRequestException('Invalid invite type for college invite')
     }
-
-    return { token, expiresAt, inviteUrl, emailSent }
+    return this.invites.createCollegeInvite(collegeId, email, type)
   }
 
   async getCollegeStats(collegeId: string) {
@@ -150,7 +119,7 @@ export class CollegesService {
         id: college.id,
         name: college.name,
         domain: college.domain,
-        logoUrl: college.logoUrl,
+        logoUrl: this.resolveLogoUrl(college.logoUrl),
       },
       stats: {
         activeCohorts,
@@ -164,5 +133,55 @@ export class CollegesService {
     if (user.role === 'SUPER_ADMIN') return
     if (user.role === 'COLLEGE_ADMIN' && user.collegeId === collegeId) return
     throw new ForbiddenException('Access denied to this college')
+  }
+
+  resolveLogoUrl(logoUrl?: string | null): string | null {
+    return resolveStoragePublicUrl(logoUrl)
+  }
+
+  async uploadCollegeLogoFile(collegeId: string, file: Express.Multer.File): Promise<string> {
+    this.storage.validateLogo(file)
+
+    const college = await this.prisma.college.findUnique({
+      where: { id: collegeId },
+      select: { logoUrl: true },
+    })
+    if (!college) throw new NotFoundException('College not found')
+
+    const path = await this.storage.upload({
+      folder: 'logo',
+      ownerId: collegeId,
+      file,
+    })
+
+    await this.storage.remove(college.logoUrl)
+
+    await this.prisma.college.update({
+      where: { id: collegeId },
+      data: { logoUrl: path },
+    })
+
+    return path
+  }
+
+  async updateCollegeLogo(
+    collegeId: string,
+    file: Express.Multer.File,
+    user: { userId: string; role: string; collegeId?: string },
+  ) {
+    this.assertCollegeAccess(user, collegeId)
+    const path = await this.uploadCollegeLogoFile(collegeId, file)
+    const college = await this.prisma.college.findUnique({
+      where: { id: collegeId },
+      select: { id: true, name: true, domain: true },
+    })
+    if (!college) throw new NotFoundException('College not found')
+
+    return {
+      college: {
+        ...college,
+        logoUrl: this.resolveLogoUrl(path),
+      },
+    }
   }
 }

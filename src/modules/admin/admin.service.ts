@@ -1,15 +1,18 @@
-import { Injectable, ConflictException, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common'
-import * as bcrypt from 'bcrypt'
+import { Injectable, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '@/prisma/prisma.service'
 import { Role, TemplateStatus } from '@prisma/client'
 import { CreateReviewerDto } from './dto/create-reviewer.dto'
+import { InviteTokenService } from '@/common/services/invite-token.service'
 import { CreateTemplateDto, TemplateTaskDto } from './dto/create-template.dto'
 import { UpdateTemplateDto } from './dto/update-template.dto'
 import { PublishTemplateDto } from './dto/publish-template.dto'
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly invites: InviteTokenService,
+  ) {}
 
   async getAllUsers(role?: string) {
     // Convert lowercase role to uppercase to match Prisma enum
@@ -39,53 +42,35 @@ export class AdminService {
     }))
   }
 
-  async createReviewer(createReviewerDto: CreateReviewerDto) {
-    const { fullName, email, password } = createReviewerDto
+  async inviteReviewer(createReviewerDto: CreateReviewerDto) {
+    const { fullName, email } = createReviewerDto
+    const normalizedEmail = email.trim().toLowerCase()
 
-    // Check if user already exists
     const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
+      include: { reviewerProfile: true },
     })
 
     if (existingUser) {
-      throw new ConflictException('User with this email already exists')
+      if (existingUser.role === Role.REVIEWER) {
+        throw new ConflictException(
+          'A reviewer with this email already exists. They can sign in or use a new invite if you resend.',
+        )
+      }
+      throw new ConflictException('User with this email already exists with a different role')
     }
 
-    // Split full name into first and last name
-    const nameParts = fullName.trim().split(' ')
-    const firstName = nameParts[0]
-    const lastName = nameParts.slice(1).join(' ') || ''
+    const invite = await this.invites.createGlobalReviewerInvite(normalizedEmail, fullName)
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10)
-
-    // Create user with reviewer profile
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        role: Role.REVIEWER,
-        reviewerProfile: {
-          create: {
-            firstName,
-            lastName,
-          },
-        },
-      },
-      include: {
-        reviewerProfile: true,
-      },
-    })
-
-    // Return user without password
     return {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: user.createdAt,
-      name: `${user.reviewerProfile.firstName} ${user.reviewerProfile.lastName}`.trim(),
-      reviewerProfile: user.reviewerProfile,
+      email: normalizedEmail,
+      fullName: fullName.trim(),
+      inviteSent: invite.emailSent,
+      inviteUrl: invite.inviteUrl,
+      expiresAt: invite.expiresAt,
+      message: invite.emailSent
+        ? 'Reviewer invite email sent'
+        : 'Invite created but email was not sent — check SMTP configuration or share the invite URL from server logs',
     }
   }
 

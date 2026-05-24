@@ -10,6 +10,7 @@ import {
   Request,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
+import { multerOptions } from '@/common/config/multer.config'
 import { CollegesService } from './colleges.service'
 import { CreateCollegeDto } from './dto/create-college.dto'
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard'
@@ -29,7 +30,7 @@ export class CollegesController {
   }
 
   @Post()
-  @UseInterceptors(FileInterceptor('logo'))
+  @UseInterceptors(FileInterceptor('logo', multerOptions))
   create(@Body() dto: CreateCollegeDto, @UploadedFile() logo?: Express.Multer.File) {
     return this.collegesService.createCollege(dto, logo)
   }

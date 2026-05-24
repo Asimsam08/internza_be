@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsUrl } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsUrl, ArrayMinSize } from 'class-validator';
 
 export class SubmitTaskDto {
   @IsString()
@@ -17,7 +17,7 @@ export class SubmitTaskDto {
   description?: string;
 
   @IsArray()
+  @ArrayMinSize(5)
   @IsString({ each: true })
-  @IsOptional()
-  screenshots?: string[];
+  screenshots: string[];
 }

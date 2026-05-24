@@ -3,6 +3,7 @@ import { CohortEnrollmentService } from '@/common/services/cohort-enrollment.ser
 import { CohortReviewerAssignmentService } from '@/common/services/cohort-reviewer-assignment.service'
 import { ReviewerScopeService } from '@/common/services/reviewer-scope.service'
 import { EmailService } from '@/common/services/email.service'
+import { InviteTokenService } from '@/common/services/invite-token.service'
 
 @Module({
   providers: [
@@ -10,12 +11,14 @@ import { EmailService } from '@/common/services/email.service'
     CohortReviewerAssignmentService,
     ReviewerScopeService,
     EmailService,
+    InviteTokenService,
   ],
   exports: [
     CohortEnrollmentService,
     CohortReviewerAssignmentService,
     ReviewerScopeService,
     EmailService,
+    InviteTokenService,
   ],
 })
 export class CohortSharedModule {}

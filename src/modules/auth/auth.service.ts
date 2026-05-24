@@ -12,12 +12,15 @@ import { StudentSignupDto } from './dto/student-signup.dto'
 import { SigninDto } from './dto/signin.dto'
 import { RefreshDto } from './dto/refresh.dto'
 import { AuthResponseDto } from './dto/auth-response.dto'
+import { getStoragePublicUrl, resolveStoragePublicUrl } from '@/common/helper'
+import { SupabaseStorageService } from '@/common/services/supabase-storage.service'
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private readonly storage: SupabaseStorageService,
   ) {}
 
   async studentSignup(studentSignupDto: StudentSignupDto): Promise<{ user: any; tokens: { accessToken: string; refreshToken: string } }> {
@@ -190,6 +193,7 @@ export class AuthService {
         email: true,
         role: true,
         collegeId: true,
+        profileImagePath: true,
         isActive: true,
         createdAt: true,
         studentProfile: true,
@@ -204,7 +208,19 @@ export class AuthService {
       throw new UnauthorizedException('User not found')
     }
 
-    return user
+
+    // return user
+
+    return {
+      ...user,
+      avatar: getStoragePublicUrl(user.profileImagePath),
+      college: user.college
+        ? {
+            ...user.college,
+            logoUrl: resolveStoragePublicUrl(user.college.logoUrl),
+          }
+        : null,
+    }
   }
 
   private async generateTokens(
@@ -245,5 +261,117 @@ export class AuthService {
     }
 
     return user
+  }
+
+
+  // async uploadProfilePicture(userId: string,  file: Express.Multer.File){
+
+  //   if(!file){
+  //     throw new BadRequestException('File is Required')
+  //   }
+
+  //   const user = await this.prisma.user.findUnique({
+  //     where: { id: userId },
+  //   })
+    
+  //   if(!user){
+  //     throw new UnauthorizedException('User not found')
+  //   }
+
+  //   const fileExt = file.originalname.split('.').pop()
+  //   const fileName = `profile-images${userId}_${Date.now()}.${fileExt}`
+
+  //   // Upload to Supabase Storage
+  //   const { data, error } = await supabase.storage
+  //     .from(process.env.SUPABASE_BUCKET!)
+  //     .upload(fileName, file.buffer, {
+  //       contentType: file.mimetype,
+  //       upsert: true,
+  //     })
+
+  //   if (error) {
+  //     throw new BadRequestException(error.message,)
+  //   }
+
+  //   // Get public URL of the uploaded image
+  //   const { data : { profileImagePath: fileName, } } = supabase.storage
+  //     .from(process.env.SUPABASE_BUCKET!)
+  //     .getPublicUrl(fileName)
+
+  //   // if (urlError) {
+  //   //   throw new BadRequestException('Failed to get image URL')
+  //   // }
+
+
+  //       // Delete old image
+  //   if (user.profileImagePath) {
+  //     try {
+  //       const oldPath = user.profileImagePath.split(
+  //         `/storage/v1/object/public/${process.env.SUPABASE_BUCKET!}/`,
+  //       )[1];
+
+  //       if (oldPath) {
+  //         await supabase.storage
+  //           .from(process.env.SUPABASE_BUCKET!)
+  //           .remove([oldPath]);
+  //       }
+  //     } catch (err) {
+  //       console.error('Old image delete failed', err);
+  //     }
+  //   }
+
+
+  //   // Update user's profile image path in database
+
+  //  // Save DB
+  //   const updatedUser = await this.prisma.user.update({
+  //     where: { id: userId },
+  //     data: {
+  //       profileImagePath: fileName,
+  //     },
+  //     select: {
+  //       id: true,
+  //       profileImagePath: true,
+  //     },
+  //   });
+
+
+  //   return updatedUser;
+
+
+
+  // }
+
+  async uploadProfilePicture(userId: string, file: Express.Multer.File) {
+    this.storage.validateImage(file)
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        profileImagePath: true,
+      },
+    })
+
+    if (!user) {
+      throw new UnauthorizedException('User not found')
+    }
+
+    const fileName = await this.storage.upload({
+      folder: 'profile-images',
+      ownerId: userId,
+      file,
+    })
+
+    await this.storage.remove(user.profileImagePath)
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { profileImagePath: fileName },
+      select: {
+        id: true,
+        profileImagePath: true,
+      },
+    })
   }
 }

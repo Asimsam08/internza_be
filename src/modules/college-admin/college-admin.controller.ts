@@ -9,10 +9,12 @@ import {
   Res,
   UseInterceptors,
   UploadedFile,
+  Patch,
 } from '@nestjs/common'
 import { Response } from 'express'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
+import { multerOptions } from '@/common/config/multer.config'
 import { CollegeAdminService } from './college-admin.service'
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard'
 import { RolesGuard } from '@/common/guards/roles.guard'
@@ -29,6 +31,16 @@ export class CollegeAdminController {
     private readonly service: CollegeAdminService,
     private readonly certificates: CohortCertificatesService,
   ) {}
+
+  @Patch('logo')
+  @UseInterceptors(FileInterceptor('file', multerOptions))
+  updateLogo(
+    @Param('collegeId') collegeId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
+  ) {
+    return this.service.updateCollegeLogo(collegeId, file, req.user)
+  }
 
   @Get('cohorts')
   listCohorts(@Param('collegeId') collegeId: string, @Request() req: any) {

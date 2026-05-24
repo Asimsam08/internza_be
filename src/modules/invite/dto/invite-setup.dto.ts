@@ -1,9 +1,9 @@
-import { IsNotEmpty, IsString, MinLength } from 'class-validator'
+import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
 
 export class InviteSetupDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  collegeId: string
+  collegeId?: string
 
   @IsString()
   @IsNotEmpty()

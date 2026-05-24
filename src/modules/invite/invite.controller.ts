@@ -10,9 +10,41 @@ export class InviteController {
   constructor(private readonly inviteService: InviteService) {}
 
   @Public()
+  @Get('platform/:token')
+  validatePlatform(@Param('token') token: string) {
+    return this.inviteService.validatePlatformToken(token)
+  }
+
+  @Public()
   @Get(':collegeId/:token')
   validate(@Param('collegeId') collegeId: string, @Param('token') token: string) {
     return this.inviteService.validateToken(collegeId, token)
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('platform/:token/accept')
+  async acceptExistingPlatform(
+    @Param('token') token: string,
+    @Request() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, tokens } = await this.inviteService.acceptExistingPlatformUser(
+      token,
+      req.user.userId,
+    )
+    res.cookie('accessToken', tokens.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 1000,
+    })
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    })
+    return { user }
   }
 
   @Public()

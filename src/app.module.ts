@@ -8,6 +8,7 @@ import { AdminModule } from './modules/admin/admin.module'
 import { CollegesModule } from './modules/colleges/colleges.module'
 import { InviteModule } from './modules/invite/invite.module'
 import { CollegeAdminModule } from './modules/college-admin/college-admin.module'
+import { StorageModule } from './common/storage.module'
 // import { UsersModule } from './modules/users/users.module'
 // import { ReviewersModule } from './modules/reviewers/reviewers.module'
 // import { InternshipsModule } from './modules/internships/internships.module'
@@ -32,6 +33,7 @@ import { CollegeAdminModule } from './modules/college-admin/college-admin.module
       },
     ]),
     PrismaModule,
+    StorageModule,
     AuthModule,
     StudentsModule,
     AdminModule,

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '@/prisma/prisma.service'
-import { EmailService } from '@/common/services/email.service'
+import { InviteTokenService } from '@/common/services/invite-token.service'
 import { DurationType, CohortStatus } from '@prisma/client'
 import * as bcrypt from 'bcrypt'
 import { randomBytes } from 'crypto'
@@ -15,9 +15,9 @@ export interface CsvStudentRow {
 export interface StudentCredential {
   email: string
   name: string
-  temporaryPassword?: string
   isNewAccount: boolean
   emailSent: boolean
+  inviteUrl?: string
 }
 
 export interface EnrollCohortResult {
@@ -32,7 +32,7 @@ export class CohortEnrollmentService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly email: EmailService,
+    private readonly invites: InviteTokenService,
     private readonly config: ConfigService,
   ) {}
 
@@ -54,8 +54,6 @@ export class CohortEnrollmentService {
     const totalWeeks = Math.max(1, template.duration)
     const durationType = this.mapWeeksToDuration(totalWeeks)
     const combination = this.buildCombination(totalWeeks)
-    const loginUrl = `${this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000'}/login`
-
     let enrolled = 0
     let skipped = 0
     const credentials: StudentCredential[] = []
@@ -89,7 +87,7 @@ export class CohortEnrollmentService {
         }
       }
 
-      let tempPassword: string | undefined
+      const isNewAccount = !existing
 
       await this.prisma.$transaction(async (tx) => {
         let userId: string
@@ -113,8 +111,8 @@ export class CohortEnrollmentService {
             }
           }
         } else {
-          tempPassword = randomBytes(8).toString('hex')
-          const hashed = await bcrypt.hash(tempPassword, 10)
+          const placeholderPassword = randomBytes(32).toString('hex')
+          const hashed = await bcrypt.hash(placeholderPassword, 10)
           const user = await tx.user.create({
             data: {
               email,
@@ -207,24 +205,36 @@ export class CohortEnrollmentService {
         }
       })
 
-      const emailSent = await this.email.sendCohortStudentInvite({
-        to: email,
-        cohortName: cohort.name,
-        collegeName: cohort.college.name,
-        loginUrl,
-        tempPassword,
-      })
+      let emailSent = false
+      let inviteUrl: string | undefined
 
-      if (!emailSent && tempPassword) {
-        this.logger.warn(`Login email not sent to ${email} — share temporary password manually`)
+      if (isNewAccount) {
+        const invite = await this.invites.createStudentInvite(
+          cohort.collegeId,
+          cohortId,
+          email,
+          cohort.name,
+          cohort.college.name,
+        )
+        emailSent = invite.emailSent
+        inviteUrl = invite.inviteUrl
+      } else {
+        emailSent = await this.invites.sendExistingStudentEnrolledEmail(
+          email,
+          cohort.name,
+          cohort.college.name,
+        )
+        if (!emailSent) {
+          this.logger.warn(`Enrollment email not sent to ${email}`)
+        }
       }
 
       credentials.push({
         email,
         name: displayName,
-        temporaryPassword: tempPassword,
-        isNewAccount: !!tempPassword,
+        isNewAccount,
         emailSent,
+        inviteUrl,
       })
 
       enrolled++
@@ -238,7 +248,7 @@ export class CohortEnrollmentService {
     return { enrolled, skipped, credentials }
   }
 
-  /** Reset passwords for cohort students and return new temporary passwords (for testing / resend) */
+  /** Resend student invite / enrollment emails for all cohort members */
   async issueCohortLoginCredentials(cohortId: string): Promise<StudentCredential[]> {
     const cohort = await this.prisma.cohort.findUnique({
       where: { id: cohortId },
@@ -253,7 +263,6 @@ export class CohortEnrollmentService {
     })
     if (!cohort) throw new NotFoundException('Cohort not found')
 
-    const loginUrl = `${this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000'}/login`
     const results: StudentCredential[] = []
 
     for (const member of cohort.members) {
@@ -261,27 +270,20 @@ export class CohortEnrollmentService {
       const profile = member.user.studentProfile
       const name = profile ? `${profile.firstName} ${profile.lastName}`.trim() : email
 
-      const tempPassword = randomBytes(8).toString('hex')
-      const hashed = await bcrypt.hash(tempPassword, 10)
-      await this.prisma.user.update({
-        where: { id: member.userId },
-        data: { password: hashed, role: 'STUDENT' },
-      })
-
-      const emailSent = await this.email.sendCohortStudentInvite({
-        to: email,
-        cohortName: cohort.name,
-        collegeName: cohort.college.name,
-        loginUrl,
-        tempPassword,
-      })
+      const invite = await this.invites.createStudentInvite(
+        cohort.collegeId,
+        cohortId,
+        email,
+        cohort.name,
+        cohort.college.name,
+      )
 
       results.push({
         email,
         name,
-        temporaryPassword: tempPassword,
         isNewAccount: true,
-        emailSent,
+        emailSent: invite.emailSent,
+        inviteUrl: invite.inviteUrl,
       })
     }
 

@@ -1,4 +1,18 @@
-import { Controller, Get, Patch, Post, Body, UseGuards, Request, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+  Param,
+  Query,
+  UseInterceptors,
+  UploadedFiles,
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { multerScreenshotsOptions } from '@/common/config/multer.config';
 import { StudentsService } from './students.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { SubmitTaskDto } from './dto/submit-task.dto';
@@ -64,8 +78,8 @@ export class StudentsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('STUDENT')
   @Get('dashboard')
-  async getDashboard(@Request() req) {
-    return this.studentsService.getStudentDashboard(req.user.userId);
+  async getDashboard(@Request() req, @Query('planId') planId?: string) {
+    return this.studentsService.getStudentDashboard(req.user.userId, planId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -73,6 +87,22 @@ export class StudentsController {
   @Get('projects/templates')
   async getProjectTemplates() {
     return this.studentsService.getProjectTemplates();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('STUDENT')
+  @Post('tasks/:taskId/screenshots')
+  @UseInterceptors(FilesInterceptor('files', 10, multerScreenshotsOptions))
+  async uploadTaskScreenshots(
+    @Request() req,
+    @Param('taskId') taskId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    return this.studentsService.uploadTaskScreenshots(
+      req.user.userId,
+      taskId,
+      files,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

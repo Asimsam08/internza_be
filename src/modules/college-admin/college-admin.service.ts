@@ -21,6 +21,14 @@ export class CollegeAdminService {
     private readonly cohortReviewers: CohortReviewerAssignmentService,
   ) {}
 
+  async updateCollegeLogo(
+    collegeId: string,
+    file: Express.Multer.File,
+    user: any,
+  ) {
+    return this.collegesService.updateCollegeLogo(collegeId, file, user)
+  }
+
   async listCohorts(collegeId: string, user: any) {
     this.collegesService.assertCollegeAccess(user, collegeId)
     const cohorts = await this.prisma.cohort.findMany({
@@ -195,7 +203,7 @@ export class CollegeAdminService {
     const credentials = await this.enrollment.issueCohortLoginCredentials(cohortId)
     const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`
     return {
-      message: 'New temporary passwords generated. Share securely with students.',
+      message: 'Invite emails resent to cohort students.',
       loginUrl,
       credentials,
     }

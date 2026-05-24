@@ -1,15 +1,40 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReviewerScopeService } from '@/common/services/reviewer-scope.service';
+import { SupabaseStorageService } from '@/common/services/supabase-storage.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DurationType } from '@prisma/client';
+import { resolveStoragePublicUrl } from '@/common/helper';
+
+const TASK_SCREENSHOTS_FOLDER = 'project-template-images';
 
 @Injectable()
 export class StudentsService {
   constructor(
     private prisma: PrismaService,
     private readonly reviewerScope: ReviewerScopeService,
+    private readonly storage: SupabaseStorageService,
   ) {}
+
+  private screenshotPrefix(studentId: string, taskId: string): string {
+    return `${TASK_SCREENSHOTS_FOLDER}/${studentId}/${taskId}/`;
+  }
+
+  private assertScreenshotPaths(
+    screenshots: string[],
+    studentId: string,
+    taskId: string,
+  ): void {
+    const prefix = this.screenshotPrefix(studentId, taskId);
+    const invalid = screenshots.filter(
+      (p) => !p.startsWith('http') && !p.startsWith(prefix),
+    );
+    if (invalid.length) {
+      throw new BadRequestException(
+        'Invalid screenshot paths. Upload screenshots via the upload API first.',
+      );
+    }
+  }
 
   async getStudentProfile(userId: string) {
     const profile = await this.prisma.studentProfile.findUnique({
@@ -92,7 +117,6 @@ export class StudentsService {
         internshipPlans: {
           where: { isCompleted: false },
           orderBy: { createdAt: 'desc' },
-          take: 1,
         },
       },
     });
@@ -101,7 +125,10 @@ export class StudentsService {
       throw new NotFoundException('Student profile not found');
     }
 
-    const hasActivePlan = student.internshipPlans.length > 0;
+    const incompletePlans = student.internshipPlans;
+    const hasActivePlan = incompletePlans.length > 0;
+    const hasCohortPlan = incompletePlans.some((p) => !!p.cohortId);
+    const hasSelfPlan = incompletePlans.some((p) => !p.cohortId);
 
     // Fixed plan options as per product requirements
     const plans = [
@@ -146,7 +173,10 @@ export class StudentsService {
     return {
       plans,
       hasActivePlan,
-      activePlanId: hasActivePlan ? student.internshipPlans[0].id : null,
+      hasCohortPlan,
+      hasSelfPlan,
+      canEnrollSelfPlan: !hasSelfPlan,
+      activePlanId: hasActivePlan ? incompletePlans[0].id : null,
     };
   }
 
@@ -247,14 +277,18 @@ export class StudentsService {
       throw new NotFoundException('Student profile not found');
     }
 
-    if (student.internshipPlans.length > 0) {
-      const active = student.internshipPlans[0];
-      if (active.cohortId) {
-        throw new BadRequestException(
-          'You are enrolled through your college cohort. Contact your placement office for changes.',
-        );
-      }
-      throw new BadRequestException('You already have an active internship plan');
+    const existingSelfPlan = await this.prisma.internshipPlan.findFirst({
+      where: {
+        studentId: student.id,
+        isCompleted: false,
+        cohortId: null,
+      },
+    });
+
+    if (existingSelfPlan) {
+      throw new BadRequestException(
+        'You already have an active self-paced internship. Switch to it on your dashboard or complete it first.',
+      );
     }
 
     // Validate duration type and compute total weeks
@@ -402,34 +436,42 @@ export class StudentsService {
     };
   }
 
-  async getStudentDashboard(userId: string) {
-    const student = await this.prisma.studentProfile.findUnique({
-      where: { userId },
-      include: {
-        internshipPlans: {
-          where: { isCompleted: false },
-          include: {
-            planProjects: {
-              include: {
-                template: true,
-                milestones: {
-                  include: {
-                    tasks: {
-                      include: {
-                        submission: {
-                          include: {
-                            review: true,
-                          },
-                        },
-                      },
+  async getStudentDashboard(userId: string, requestedPlanId?: string) {
+    const planInclude = {
+      cohort: {
+        select: {
+          id: true,
+          name: true,
+          college: { select: { name: true, logoUrl: true } },
+        },
+      },
+      planProjects: {
+        include: {
+          template: true,
+          milestones: {
+            include: {
+              tasks: {
+                include: {
+                  submission: {
+                    include: {
+                      review: true,
                     },
                   },
                 },
               },
             },
           },
+        },
+      },
+    } as const;
+
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { userId },
+      include: {
+        internshipPlans: {
+          where: { isCompleted: false },
+          include: planInclude,
           orderBy: { createdAt: 'desc' },
-          take: 1,
         },
       },
     });
@@ -438,20 +480,61 @@ export class StudentsService {
       throw new NotFoundException('Student profile not found');
     }
 
-    const activePlan = student.internshipPlans[0];
-    if (!activePlan) {
+    const incompletePlans = student.internshipPlans;
+    if (!incompletePlans.length) {
       return {
         hasActivePlan: false,
         message: 'No active internship plan',
+        availablePlans: [] as Array<Record<string, unknown>>,
+        canEnrollSelfPlan: true,
+        hasMultiplePlans: false,
       };
     }
+
+    const availablePlans = incompletePlans.map((plan) => {
+      const templateTitle =
+        plan.planProjects[0]?.template?.title ?? 'Internship';
+      if (plan.cohortId && plan.cohort) {
+        return {
+          id: plan.id,
+          type: 'cohort' as const,
+          label: plan.cohort.name,
+          subtitle: plan.cohort.college?.name
+            ? `${plan.cohort.college.name} cohort`
+            : 'College cohort',
+          cohortId: plan.cohortId,
+          collegeLogoUrl: resolveStoragePublicUrl(plan.cohort.college?.logoUrl ?? null),
+        };
+      }
+      const durationLabel = plan.durationType.replace(/_/g, ' ');
+      return {
+        id: plan.id,
+        type: 'self' as const,
+        label: 'Self-paced internship',
+        subtitle: `${durationLabel} · ${templateTitle}`,
+        cohortId: null as string | null,
+      };
+    });
+
+    const cohortPlan = incompletePlans.find((p) => p.cohortId);
+    const selfPlan = incompletePlans.find((p) => !p.cohortId);
+    const defaultPlan = cohortPlan ?? incompletePlans[0];
+
+    const activePlan =
+      requestedPlanId && incompletePlans.some((p) => p.id === requestedPlanId)
+        ? incompletePlans.find((p) => p.id === requestedPlanId)!
+        : defaultPlan;
+
+    const hasSelfPlan = !!selfPlan;
+    const canEnrollSelfPlan = !hasSelfPlan;
+    const hasMultiplePlans = incompletePlans.length > 1;
 
     let cohortContext: Record<string, unknown> | null = null;
     if (activePlan.cohortId) {
       const cohort = await this.prisma.cohort.findUnique({
         where: { id: activePlan.cohortId },
         include: {
-          college: { select: { name: true } },
+          college: { select: { name: true, logoUrl: true } },
           _count: { select: { members: true } },
           members: { select: { userId: true } },
         },
@@ -466,6 +549,7 @@ export class StudentsService {
           cohortId: cohort.id,
           name: cohort.name,
           collegeName: cohort.college.name,
+          collegeLogoUrl: resolveStoragePublicUrl(cohort.college.logoUrl),
           weekLabel: `Week ${currentWeek}/${totalWeeks}`,
           rank: memberIndex >= 0 ? `#${memberIndex + 1}/${cohort._count.members}` : null,
         };
@@ -580,6 +664,7 @@ export class StudentsService {
           commitHash: task.submission.commitHash,
           description: task.submission.description,
           screenshots: task.submission.screenshots,
+          screenshotUrls: this.storage.toPublicUrls(task.submission.screenshots),
         } : undefined,
         review: reviewData,
       };
@@ -639,6 +724,11 @@ export class StudentsService {
 
     return {
       planId: refreshedPlan.id,
+      activePlanId: activePlan.id,
+      availablePlans,
+      canEnrollSelfPlan,
+      hasMultiplePlans,
+      activePlanType: activePlan.cohortId ? ('cohort' as const) : ('self' as const),
       cohort: cohortContext,
       durationType: refreshedPlan.durationType,
       totalWeeks: refreshedPlan.totalWeeks,
@@ -700,7 +790,79 @@ export class StudentsService {
     };
   }
 
-  async submitTask(userId: string, taskId: string, prLink: string, commitHash?: string, description?: string, screenshots?: string[]) {
+  async uploadTaskScreenshots(
+    userId: string,
+    taskId: string,
+    files: Express.Multer.File[],
+  ) {
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!student) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        milestone: {
+          include: {
+            project: {
+              include: { plan: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    if (task.milestone.project.plan.studentId !== student.id) {
+      throw new ForbiddenException('You do not have permission to upload for this task');
+    }
+
+    if (task.startAt && new Date(task.startAt) > new Date()) {
+      throw new BadRequestException('This task is not yet available');
+    }
+
+    if (
+      task.status !== 'DRAFT' &&
+      task.status !== 'REJECTED' &&
+      task.status !== 'CHANGES_REQUESTED'
+    ) {
+      throw new BadRequestException('Screenshots cannot be uploaded for this task status');
+    }
+
+    if (!files?.length) {
+      throw new BadRequestException('At least one screenshot file is required');
+    }
+
+    const ownerId = `${student.id}/${taskId}`;
+    const paths = await this.storage.uploadMany(
+      TASK_SCREENSHOTS_FOLDER,
+      ownerId,
+      files,
+    );
+
+    return {
+      screenshots: paths.map((path) => ({
+        path,
+        url: this.storage.toPublicUrl(path),
+      })),
+    };
+  }
+
+  async submitTask(
+    userId: string,
+    taskId: string,
+    prLink: string,
+    commitHash?: string,
+    description?: string,
+    screenshots: string[] = [],
+  ) {
     const student = await this.prisma.studentProfile.findUnique({
       where: { userId },
     });
@@ -742,6 +904,22 @@ export class StudentsService {
     // Check if already submitted
     if (task.status !== 'DRAFT' && task.status !== 'REJECTED' && task.status !== 'CHANGES_REQUESTED') {
       throw new BadRequestException('This task has already been submitted');
+    }
+
+    if (!screenshots || screenshots.length < 5) {
+      throw new BadRequestException('At least 5 screenshots are required');
+    }
+
+    this.assertScreenshotPaths(screenshots, student.id, taskId);
+
+    const existing = await this.prisma.submission.findUnique({
+      where: { taskId },
+      select: { screenshots: true },
+    });
+
+    if (existing?.screenshots?.length) {
+      const removed = existing.screenshots.filter((p) => !screenshots.includes(p));
+      await this.storage.removeMany(removed);
     }
 
     // Create or update submission
@@ -1104,12 +1282,12 @@ export class StudentsService {
           : null,
         submittedAt: timeAgo,
         submittedAtDate: submittedAt,
-        files: task.submission?.screenshots?.map((url, index) => ({
+        files: this.storage.toPublicUrls(task.submission?.screenshots ?? []).map((url, index) => ({
           name: `screenshot-${index + 1}`,
           type: 'image',
           size: 'N/A',
           url,
-        })) || [],
+        })),
         notes: task.submission?.description || '',
         prLink: task.submission?.prLink || '',
         commitHash: task.submission?.commitHash || '',
