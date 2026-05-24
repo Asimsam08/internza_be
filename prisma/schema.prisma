@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,11 +7,408 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Enums
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  password        String
+  role            Role             @default(STUDENT)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  profileImagePath String? 
+  collegeId       String?
+  auditLogs       AuditLog[]
+  cohortMembers   CohortMember[]
+  primaryCollege  College?         @relation("CollegePrimaryAdmin")
+  reviewerProfile ReviewerProfile?
+  studentProfile  StudentProfile?
+  college         College?         @relation("CollegeUsers", fields: [collegeId], references: [id])
+
+  @@index([email])
+  @@index([role])
+  @@index([collegeId])
+}
+
+model College {
+  id             String        @id @default(cuid())
+  name           String
+  domain         String        @unique
+  logoUrl        String?
+  primaryAdminId String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  cohorts        Cohort[]
+  primaryAdmin   User?         @relation("CollegePrimaryAdmin", fields: [primaryAdminId], references: [id])
+  inviteTokens   InviteToken[]
+  users          User[]        @relation("CollegeUsers")
+
+  @@index([domain])
+}
+
+model Cohort {
+  id         String           @id @default(cuid())
+  collegeId  String
+  name       String
+  templateId String
+  startDate  DateTime
+  endDate    DateTime
+  status     CohortStatus     @default(DRAFT)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  college    College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  template   ProjectTemplate  @relation(fields: [templateId], references: [id])
+  members      CohortMember[]
+  reviewers    CohortReviewer[]
+  plans        InternshipPlan[]
+  inviteTokens InviteToken[]
+
+  @@index([collegeId])
+  @@index([status])
+  @@index([templateId])
+}
+
+model CohortMember {
+  id                String          @id @default(cuid())
+  cohortId          String
+  userId            String
+  studentId         String?
+  externalStudentId String?
+  createdAt         DateTime        @default(now())
+  cohort            Cohort          @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  student           StudentProfile? @relation(fields: [studentId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, userId])
+  @@index([cohortId])
+  @@index([userId])
+}
+
+model CohortReviewer {
+  id         String          @id @default(cuid())
+  cohortId   String
+  reviewerId String
+  createdAt  DateTime        @default(now())
+  cohort     Cohort          @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  reviewer   ReviewerProfile @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, reviewerId])
+  @@index([cohortId])
+  @@index([reviewerId])
+}
+
+model InviteToken {
+  id          String     @id @default(cuid())
+  collegeId   String?
+  cohortId    String?
+  email       String
+  token       String     @unique
+  type        InviteType @default(COLLEGE_ADMIN)
+  inviteeName String?
+  expiresAt   DateTime
+  used        Boolean    @default(false)
+  usedAt      DateTime?
+  createdAt   DateTime   @default(now())
+  college     College?   @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  cohort      Cohort?    @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  @@index([collegeId])
+  @@index([cohortId])
+  @@index([email])
+  @@index([token])
+}
+
+model StudentProfile {
+  id              String           @id @default(uuid())
+  userId          String           @unique
+  firstName       String
+  lastName        String
+  phone           String?
+  dateOfBirth     DateTime?
+  address         String?
+  city            String?
+  country         String?
+  bio             String?
+  linkedIn        String?
+  github          String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  graduationYear  Int?
+  university      String?
+  cohortMembers   CohortMember[]
+  internshipPlans InternshipPlan[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ReviewerProfile {
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  firstName         String
+  lastName          String
+  phone             String?
+  bio               String?
+  expertise         String[]
+  linkedIn          String?
+  github            String?
+  isAvailable       Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  cohortAssignments CohortReviewer[]
+  planProjects      PlanProject[]
+  projectTemplates  ProjectTemplate[]
+  reviews           Review[]
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isAvailable])
+}
+
+model ProjectTemplate {
+  id               String           @id @default(uuid())
+  title            String
+  description      String
+  shortDescription String?
+  category         String
+  difficulty       String
+  duration         Int
+  skills           String[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  reviewerId       String?
+  figmaLink        String?
+  imageAlt         String?
+  imagePublicId    String?
+  imageUrl         String?
+  publishedAt      DateTime?
+  status           TemplateStatus   @default(DRAFT)
+  techStack        String[]
+  version          Int              @default(1)
+  cohorts          Cohort[]
+  planProjects     PlanProject[]
+  reviewer         ReviewerProfile? @relation(fields: [reviewerId], references: [id])
+  templateTasks    TemplateTask[]
+
+  @@index([status])
+  @@index([reviewerId])
+  @@index([category])
+  @@index([difficulty])
+}
+
+model TemplateTask {
+  id              String          @id @default(uuid())
+  templateId      String
+  title           String
+  description     String
+  order           Int
+  durationDays    Int
+  dependsOnTaskId String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  dependsOnTask   TemplateTask?   @relation("TaskDependency", fields: [dependsOnTaskId], references: [id])
+  dependentTasks  TemplateTask[]  @relation("TaskDependency")
+  template        ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@index([order])
+  @@index([dependsOnTaskId])
+}
+
+model InternshipPlan {
+  id                   String         @id @default(uuid())
+  studentId            String
+  durationType         DurationType
+  totalWeeks           Int
+  combination          Int[]
+  sequentialCompletion Boolean        @default(true)
+  completedWeeks       Int            @default(0)
+  isCompleted          Boolean        @default(false)
+  startedAt            DateTime       @default(now())
+  completedAt          DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  overdueTaskCount     Int            @default(0)
+  status               PlanStatus     @default(ACTIVE)
+  cohortId             String?
+  certificate          Certificate?
+  cohort               Cohort?        @relation(fields: [cohortId], references: [id])
+  student              StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  planProjects         PlanProject[]
+
+  @@index([studentId])
+  @@index([isCompleted])
+  @@index([status])
+  @@index([cohortId])
+}
+
+model PlanProject {
+  id          String            @id @default(uuid())
+  planId      String
+  templateId  String
+  order       Int
+  status      PlanProjectStatus @default(LOCKED)
+  reviewerId  String?
+  isCompleted Boolean           @default(false)
+  startedAt   DateTime?
+  completedAt DateTime?
+  approvedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  milestones  Milestone[]
+  plan        InternshipPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  reviewer    ReviewerProfile?  @relation(fields: [reviewerId], references: [id])
+  template    ProjectTemplate   @relation(fields: [templateId], references: [id])
+
+  @@unique([planId, templateId])
+  @@index([planId])
+  @@index([templateId])
+  @@index([status])
+  @@index([reviewerId])
+}
+
+model Milestone {
+  id          String      @id @default(uuid())
+  projectId   String
+  title       String
+  description String
+  order       Int
+  isCompleted Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  project     PlanProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@index([projectId])
+}
+
+model Task {
+  id           String      @id @default(uuid())
+  milestoneId  String
+  title        String
+  description  String
+  order        Int
+  status       TaskStatus  @default(DRAFT)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  durationDays Int
+  dueAt        DateTime?
+  isOverdue    Boolean     @default(false)
+  startAt      DateTime?
+  isLocked     Boolean     @default(true)
+  submission   Submission?
+  milestone    Milestone   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@index([status])
+  @@index([dueAt])
+  @@index([isOverdue])
+  @@index([isLocked])
+}
+
+model Submission {
+  id          String   @id @default(uuid())
+  taskId      String   @unique
+  prLink      String?
+  commitHash  String?
+  description String
+  screenshots String[]
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  review      Review?
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model Review {
+  id            String          @id @default(uuid())
+  reviewerId    String
+  status        ReviewStatus    @default(PENDING)
+  feedback      String?
+  codeQuality   Int?
+  documentation Int?
+  reviewedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  submissionId  String          @unique
+  reviewer      ReviewerProfile @relation(fields: [reviewerId], references: [id])
+  submission    Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([reviewerId])
+  @@index([status])
+}
+
+model Certificate {
+  id              String            @id @default(uuid())
+  planId          String            @unique
+  studentId       String
+  certificateUrl  String
+  certificateHash String
+  issuedAt        DateTime          @default(now())
+  status          CertificateStatus @default(ISSUED)
+  revokedAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  plan            InternshipPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([studentId])
+  @@index([certificateHash])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([type])
+}
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  userId     String?
+  action     AuditAction
+  resource   String
+  resourceId String?
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+}
+
 enum Role {
   STUDENT
   REVIEWER
   SUPER_ADMIN
+  COLLEGE_ADMIN
+}
+
+enum InviteType {
+  COLLEGE_ADMIN
+  REVIEWER
+  GLOBAL_REVIEWER
+  STUDENT
+}
+
+enum CohortStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
 }
 
 enum DurationType {
@@ -22,6 +416,13 @@ enum DurationType {
   EIGHT_WEEKS
   TWELVE_WEEKS
   CUSTOM
+}
+
+enum PlanStatus {
+  ACTIVE
+  AT_RISK
+  NEEDS_ATTENTION
+  COMPLETED
 }
 
 enum TemplateStatus {
@@ -45,6 +446,7 @@ enum TaskStatus {
   APPROVED
   REJECTED
   CHANGES_REQUESTED
+  LOCKED
 }
 
 enum ReviewStatus {
@@ -77,318 +479,5 @@ enum AuditAction {
   UNASSIGN
   PUBLISH
   UNPUBLISH
-}
-
-// Core Models
-model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  password      String
-  role          Role     @default(STUDENT)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
-  studentProfile StudentProfile?
-  reviewerProfile ReviewerProfile?
-  auditLogs       AuditLog[]
-
-  @@index([email])
-  @@index([role])
-}
-
-model StudentProfile {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  firstName      String
-  lastName       String
-  university     String?
-  graduationYear Int?
-  phone          String?
-  dateOfBirth    DateTime?
-  address        String?
-  city           String?
-  country        String?
-  bio            String?  @db.Text
-  linkedIn       String?
-  github         String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  // Relations
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  internshipPlans InternshipPlan[]
-
-  @@index([userId])
-}
-
-model ReviewerProfile {
-  id          String   @id @default(uuid())
-  userId      String   @unique
-  firstName   String
-  lastName    String
-  phone       String?
-  bio         String?  @db.Text
-  expertise   String[] // Array of skills/areas
-  linkedIn    String?
-  github      String?
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectTemplates  ProjectTemplate[]
-  planProjects      PlanProject[]
-  reviews           Review[]
-
-  @@index([userId])
-  @@index([isAvailable])
-}
-
-// Project Templates (Admin creates these)
-model ProjectTemplate {
-  id                String         @id @default(uuid())
-  title             String
-  description       String         @db.Text
-  shortDescription  String?        @db.Text
-  category          String
-  difficulty        String         // Beginner, Intermediate, Advanced
-  duration          Int            // in weeks
-  skills            String[]       // Array of required skills
-  techStack         String[]       // Array of technologies
-  figmaLink         String?
-  imageUrl          String?
-  imagePublicId     String?
-  imageAlt          String?
-  status            TemplateStatus @default(DRAFT)
-  publishedAt       DateTime?
-  version           Int            @default(1)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  // Relations
-  reviewerId    String?
-  reviewer      ReviewerProfile?  @relation(fields: [reviewerId], references: [id])
-  planProjects  PlanProject[]
-  templateTasks TemplateTask[]
-
-  @@index([status])
-  @@index([reviewerId])
-  @@index([category])
-  @@index([difficulty])
-}
-
-// Template Tasks (Tasks within a Project Template)
-model TemplateTask {
-  id              String   @id @default(uuid())
-  templateId      String
-  title           String
-  description     String   @db.Text
-  order           Int      // Order within the template
-  durationDays    Int      // Estimated days to complete
-  dependsOnTaskId String?  // Optional dependency on previous task
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relations
-  template        ProjectTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  dependsOnTask   TemplateTask?   @relation("TaskDependency", fields: [dependsOnTaskId], references: [id])
-  dependentTasks  TemplateTask[]  @relation("TaskDependency")
-
-  @@index([templateId])
-  @@index([order])
-  @@index([dependsOnTaskId])
-}
-
-// Internship Plans
-model InternshipPlan {
-  id                  String       @id @default(uuid())
-  studentId           String
-  durationType        DurationType
-  totalWeeks          Int
-  combination         Int[]        // Array of week combinations, e.g., [4, 4] for 8 weeks
-  sequentialCompletion Boolean     @default(true)
-  completedWeeks      Int          @default(0)
-  isCompleted         Boolean      @default(false)
-  startedAt           DateTime     @default(now())
-  completedAt         DateTime?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-
-  // Relations
-  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  planProjects PlanProject[]
-  certificate  Certificate?
-
-  @@index([studentId])
-  @@index([isCompleted])
-}
-
-// Projects in a Plan
-model PlanProject {
-  id              String            @id @default(uuid())
-  planId          String
-  templateId      String
-  order           Int               // Order in the plan (1, 2, 3...)
-  status          PlanProjectStatus @default(LOCKED)
-  reviewerId      String?           // Override template reviewer if needed
-  isCompleted     Boolean           @default(false)
-  startedAt       DateTime?
-  completedAt     DateTime?
-  approvedAt      DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-
-  // Relations
-  plan            InternshipPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
-  template        ProjectTemplate @relation(fields: [templateId], references: [id])
-  reviewer        ReviewerProfile? @relation(fields: [reviewerId], references: [id])
-  milestones      Milestone[]
-
-  @@unique([planId, templateId])
-  @@index([planId])
-  @@index([templateId])
-  @@index([status])
-  @@index([reviewerId])
-}
-
-// Milestones within a Project
-model Milestone {
-  id          String   @id @default(uuid())
-  projectId   String
-  title       String
-  description String   @db.Text
-  order       Int      // Order within the project
-  isCompleted Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  project     PlanProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks       Task[]
-
-  @@index([projectId])
-}
-
-// Tasks within a Milestone
-model Task {
-  id          String     @id @default(uuid())
-  milestoneId String
-  title       String
-  description String     @db.Text
-  order       Int        // Order within the milestone
-  durationDays Int       // Estimated days to complete (from template)
-  status      TaskStatus @default(DRAFT)
-  startDate   DateTime?  // Computed start date based on plan
-  dueDate     DateTime?  // Computed due date based on duration
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  // Relations
-  milestone   Milestone    @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  submission  Submission?
-
-  @@index([milestoneId])
-  @@index([status])
-  @@index([dueDate])
-}
-
-// Submissions
-model Submission {
-  id          String   @id @default(uuid())
-  taskId      String   @unique
-  prLink      String?
-  commitHash  String?
-  description String   @db.Text
-  screenshots String[] // Array of image URLs
-  submittedAt DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  task        Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  review      Review?
-
-  @@index([taskId])
-}
-
-// Reviews
-model Review {
-  id              String       @id @default(uuid())
-  submissionId    String       @unique
-  reviewerId      String
-  status          ReviewStatus @default(PENDING)
-  feedback        String?      @db.Text
-  codeQuality     Int?         // 1-5 rating
-  documentation   Int?         // 1-5 rating
-  reviewedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  // Relations
-  submission  Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  reviewer    ReviewerProfile @relation(fields: [reviewerId], references: [id])
-
-  @@index([submissionId])
-  @@index([reviewerId])
-  @@index([status])
-}
-
-// Certificates
-model Certificate {
-  id              String           @id @default(uuid())
-  planId          String           @unique
-  studentId       String
-  certificateUrl  String
-  certificateHash String           // For verification
-  issuedAt        DateTime         @default(now())
-  status          CertificateStatus @default(ISSUED)
-  revokedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-
-  // Relations
-  plan InternshipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([planId])
-  @@index([studentId])
-  @@index([certificateHash])
-}
-
-// Notifications
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String           @db.Text
-  isRead    Boolean          @default(false)
-  metadata  Json?            // Additional data
-  createdAt DateTime         @default(now())
-
-  @@index([userId])
-  @@index([isRead])
-  @@index([type])
-}
-
-// Audit Logs
-model AuditLog {
-  id          String      @id @default(uuid())
-  userId      String?
-  action      AuditAction
-  resource    String      // e.g., "ProjectTemplate", "User"
-  resourceId  String?
-  changes     Json?       // Before/after state
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime    @default(now())
-
-  // Relations
-  user User? @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([action])
-  @@index([resource])
-  @@index([createdAt])
+  UNLOCK
 }

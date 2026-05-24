@@ -31,14 +31,14 @@ export class AdminController {
   @Post('users/reviewer')
   @Roles(Role.SUPER_ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new reviewer account (admin only)' })
-  @ApiResponse({ status: 201, description: 'Reviewer created successfully' })
+  @ApiOperation({ summary: 'Invite a global reviewer by email (admin only)' })
+  @ApiResponse({ status: 201, description: 'Reviewer invite sent' })
   @ApiResponse({ status: 400, description: 'Bad request - invalid data' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - not an admin' })
   @ApiResponse({ status: 409, description: 'Conflict - email already exists' })
-  async createReviewer(@Body() createReviewerDto: CreateReviewerDto) {
-    return this.adminService.createReviewer(createReviewerDto)
+  async inviteReviewer(@Body() createReviewerDto: CreateReviewerDto) {
+    return this.adminService.inviteReviewer(createReviewerDto)
   }
 
   // ==================== Project Template Endpoints ====================

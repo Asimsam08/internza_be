@@ -1,0 +1,11 @@
+import { Module } from '@nestjs/common'
+import { CollegesController, CollegeAdminStatsController } from './colleges.controller'
+import { CollegesService } from './colleges.service'
+import { EmailService } from '@/common/services/email.service'
+import { InviteTokenService } from '@/common/services/invite-token.service'
+@Module({
+  controllers: [CollegesController, CollegeAdminStatsController],
+  providers: [CollegesService, EmailService, InviteTokenService],
+  exports: [CollegesService, EmailService, InviteTokenService],
+})
+export class CollegesModule {}

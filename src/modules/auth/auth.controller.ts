@@ -1,9 +1,11 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Res, Req } from '@nestjs/common'
+import { Controller, Post, Body, Get, Patch, UseGuards, Request, Res,UploadedFile, Req,UseInterceptors } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express'
 import { AuthService } from './auth.service'
 import { StudentSignupDto } from './dto/student-signup.dto'
 import { SigninDto } from './dto/signin.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { multerOptions } from '../../common/config/multer.config';
 
 interface RequestWithCookies extends Request {
   cookies?: {
@@ -108,4 +110,67 @@ export class AuthController {
   async getCurrentUser(@Request() req) {
     return this.authService.getCurrentUser(req.user.userId)
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile-picture')
+  @UseInterceptors(
+    FileInterceptor('file', multerOptions),
+  )
+  async uploadProfilePicture(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    return this.authService.uploadProfilePicture(
+      req.user.userId,
+      file,
+    );
+  }
+
+//   @Patch('profile-picture')
+// @UseInterceptors(FileInterceptor('file'))
+// async uploadProfilePicture(
+//   @UploadedFile() file: Express.Multer.File,
+// ) {
+//   console.log('CONTROLLER HIT');
+
+//   console.log(file);
+
+//   return {
+//     success: true,
+//   };
+// }
+
+
+// @Patch('profile-picture')
+// @UseInterceptors(
+//   FileInterceptor('file', multerOptions),
+// )
+// async uploadProfilePicture(
+//   @UploadedFile() file: Express.Multer.File,
+//   @Req() req: any,
+// ) {
+//   try {
+//     console.log('CONTROLLER HIT');
+//     console.log(req.user);
+
+//     const result =
+//       await this.authService.uploadProfilePicture(
+//         req.user.userId,
+//         file,
+//       );
+
+//     console.log(result);
+
+//     return result;
+//   } catch (error) {
+//     console.error(
+//       'FULL ERROR:',
+//       error,
+//     );
+
+//     throw error;
+//   }
+// }
+
+
 }
