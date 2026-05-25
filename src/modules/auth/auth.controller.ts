@@ -25,22 +25,23 @@ export class AuthController {
   ) {
     const { user, tokens } = await this.authService.studentSignup(studentSignupDto)
 
-    // Set httpOnly cookies
-    res.cookie('accessToken', tokens.accessToken, {
+    const isProduction = process.env.NODE_ENV === 'production'
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+    }
+
+    res.cookie('accessToken', tokens.accessToken, {
+      ...cookieOptions,
       maxAge: 60 * 60 * 1000, // 1 hour
     })
 
     res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     })
 
-    // Return only user data (not tokens)
     return { user }
   }
 
@@ -48,22 +49,23 @@ export class AuthController {
   async signin(@Body() signinDto: SigninDto, @Res({ passthrough: true }) res: Response) {
     const { user, tokens } = await this.authService.signin(signinDto)
 
-    // Set httpOnly cookies
-    res.cookie('accessToken', tokens.accessToken, {
+    const isProduction = process.env.NODE_ENV === 'production'
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+    }
+
+    res.cookie('accessToken', tokens.accessToken, {
+      ...cookieOptions,
       maxAge: 60 * 60 * 1000, // 1 hour
     })
 
     res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     })
 
-    // Return only user data (not tokens)
     return { user }
   }
 
@@ -77,18 +79,20 @@ export class AuthController {
 
     const { user, tokens } = await this.authService.refresh(refreshToken)
 
-    // Set new httpOnly cookies
-    res.cookie('accessToken', tokens.accessToken, {
+    const isProduction = process.env.NODE_ENV === 'production'
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+    }
+
+    res.cookie('accessToken', tokens.accessToken, {
+      ...cookieOptions,
       maxAge: 60 * 60 * 1000, // 1 hour
     })
 
     res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     })
 
