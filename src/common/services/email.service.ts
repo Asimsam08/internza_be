@@ -1,33 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import * as nodemailer from 'nodemailer'
+import { Resend } from 'resend'
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name)
-  private transporter: nodemailer.Transporter | null = null
+  private resend: Resend | null = null
+  private readonly fromAddress: string
 
   constructor(private readonly config: ConfigService) {
-    const host = this.config.get<string>('SMTP_HOST')
-    const user = this.config.get<string>('SMTP_USER')
-    const pass =
-      this.config.get<string>('SMTP_PASSWORD') ||
-      this.config.get<string>('SMTP_PASS')
+    const apiKey = this.config.get<string>('RESEND_API_KEY')
+    this.fromAddress = this.config.get<string>('EMAIL_FROM') || 'Internza <onboarding@resend.dev>'
 
-    const hasRealCredentials =
-      !!host &&
-      !!user &&
-      !!pass &&
-      !user.includes('your-email') &&
-      !pass.includes('your-app-password')
-
-    if (hasRealCredentials) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port: parseInt(this.config.get<string>('SMTP_PORT') || '587', 10),
-        secure: this.config.get<string>('SMTP_SECURE') === 'true',
-        auth: { user, pass },
-      })
+    if (apiKey) {
+      this.resend = new Resend(apiKey)
+    } else {
+      this.logger.warn('RESEND_API_KEY not set — emails will be skipped')
     }
   }
 
@@ -87,13 +75,24 @@ export class EmailService {
   }
 
   private async send(opts: { to: string; subject: string; html: string }): Promise<boolean> {
-    const from = this.config.get<string>('SMTP_FROM') || 'noreply@internza.com'
-    if (!this.transporter) {
-      this.logger.warn(`Email skipped (SMTP not configured): ${opts.subject} → ${opts.to}`)
+    if (!this.resend) {
+      this.logger.warn(`Email skipped (Resend not configured): ${opts.subject} → ${opts.to}`)
       return false
     }
     try {
-      await this.transporter.sendMail({ from, ...opts })
+      const { error } = await this.resend.emails.send({
+        from: this.fromAddress,
+        to: [opts.to],
+        subject: opts.subject,
+        html: opts.html,
+      })
+
+      if (error) {
+        this.logger.error(`Email failed for ${opts.to}: ${error.message}`)
+        return false
+      }
+
+      this.logger.log(`Email sent to ${opts.to}: ${opts.subject}`)
       return true
     } catch (error) {
       this.logger.error(`Email failed for ${opts.to}: ${(error as Error).message}`)
