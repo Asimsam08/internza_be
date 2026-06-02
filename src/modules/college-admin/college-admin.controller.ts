@@ -4,6 +4,7 @@ import {
   Post,
   Param,
   Body,
+  Query,
   UseGuards,
   Request,
   Res,
@@ -54,6 +55,25 @@ export class CollegeAdminController {
     @Request() req: any,
   ) {
     return this.service.createCohort(collegeId, dto, req.user)
+  }
+
+  @Get('cohorts/:cohortId')
+  getCohortDetail(
+    @Param('collegeId') collegeId: string,
+    @Param('cohortId') cohortId: string,
+    @Request() req: any,
+  ) {
+    return this.service.getCohortDetail(collegeId, cohortId, req.user)
+  }
+
+  @Get('cohorts/:cohortId/students')
+  getCohortStudents(
+    @Param('collegeId') collegeId: string,
+    @Param('cohortId') cohortId: string,
+    @Query('search') search: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.service.getCohortStudents(collegeId, cohortId, req.user, search)
   }
 
   @Post('cohorts/:cohortId/students/csv')

@@ -5,6 +5,8 @@ import { SupabaseStorageService } from '@/common/services/supabase-storage.servi
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DurationType } from '@prisma/client';
 import { resolveStoragePublicUrl } from '@/common/helper';
+import { CertificatesService } from '@/modules/certificates/certificates.service';
+import { Response } from 'express';
 
 const TASK_SCREENSHOTS_FOLDER = 'project-template-images';
 
@@ -14,6 +16,7 @@ export class StudentsService {
     private prisma: PrismaService,
     private readonly reviewerScope: ReviewerScopeService,
     private readonly storage: SupabaseStorageService,
+    private readonly certificatesService: CertificatesService,
   ) {}
 
   private screenshotPrefix(studentId: string, taskId: string): string {
@@ -722,6 +725,11 @@ export class StudentsService {
       };
     }
 
+    const certificate = await this.certificatesService.getPlanCertificateSummary(
+      refreshedPlan.id,
+      userId,
+    );
+
     return {
       planId: refreshedPlan.id,
       activePlanId: activePlan.id,
@@ -787,6 +795,7 @@ export class StudentsService {
       warnings,
       nextAction,
       taskTimeline,
+      certificate,
     };
   }
 
@@ -1711,15 +1720,7 @@ export class StudentsService {
     const currentProject = plan.planProjects.find((p) => !p.isCompleted && (p.status === 'AVAILABLE' || p.status === 'IN_PROGRESS'));
     
     if (!currentProject) {
-      // All projects completed, mark plan as completed
-      await this.prisma.internshipPlan.update({
-        where: { id: planId },
-        data: {
-          isCompleted: true,
-          completedAt: new Date(),
-          status: 'COMPLETED' as any,
-        },
-      });
+      await this.markPlanCompleted(planId);
       return;
     }
 
@@ -1772,7 +1773,58 @@ export class StudentsService {
             });
           }
         }
+      } else {
+        await this.markPlanCompleted(planId);
       }
+    }
+  }
+
+  async getMyCertificate(userId: string) {
+    return this.certificatesService.getStudentCertificate(userId);
+  }
+
+  async downloadMyCertificate(userId: string, role: string, res: Response) {
+    const meta = await this.certificatesService.getStudentCertificate(userId);
+    if (!meta.issued || !meta.planId) {
+      const msg = 'message' in meta ? meta.message : 'No certificate available';
+      throw new BadRequestException(msg);
+    }
+    return this.certificatesService.streamPlanCertificate(meta.planId, userId, role, res, false);
+  }
+
+  async previewMyCertificate(userId: string, role: string, res: Response) {
+    const meta = await this.certificatesService.getStudentCertificate(userId);
+    if (!meta.issued || !meta.planId) {
+      const msg = 'message' in meta ? meta.message : 'No certificate available';
+      throw new BadRequestException(msg);
+    }
+    return this.certificatesService.streamPlanCertificate(meta.planId, userId, role, res, true);
+  }
+
+  async getCertificateMeta(planId: string, userId: string, role: string) {
+    return this.certificatesService.getCertificateMeta(planId, userId, role);
+  }
+
+  private async markPlanCompleted(planId: string) {
+    const plan = await this.prisma.internshipPlan.findUnique({
+      where: { id: planId },
+      select: { isCompleted: true },
+    });
+    if (!plan || plan.isCompleted) return;
+
+    await this.prisma.internshipPlan.update({
+      where: { id: planId },
+      data: {
+        isCompleted: true,
+        completedAt: new Date(),
+        status: 'COMPLETED' as any,
+      },
+    });
+
+    try {
+      await this.certificatesService.issueForCompletedPlan(planId);
+    } catch (err) {
+      console.error(`Certificate issuance failed for plan ${planId}`, err);
     }
   }
 }

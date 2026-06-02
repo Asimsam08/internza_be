@@ -8,9 +8,11 @@ import {
   Request,
   Param,
   Query,
+  Res,
   UseInterceptors,
   UploadedFiles,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { multerScreenshotsOptions } from '@/common/config/multer.config';
 import { StudentsService } from './students.service';
@@ -80,6 +82,38 @@ export class StudentsController {
   @Get('dashboard')
   async getDashboard(@Request() req, @Query('planId') planId?: string) {
     return this.studentsService.getStudentDashboard(req.user.userId, planId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('STUDENT')
+  @Get('certificate')
+  async getMyCertificate(@Request() req) {
+    return this.studentsService.getMyCertificate(req.user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('STUDENT')
+  @Get('certificate/download')
+  async downloadMyCertificate(@Request() req, @Res() res: Response) {
+    return this.studentsService.downloadMyCertificate(req.user.userId, req.user.role, res);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('STUDENT')
+  @Get('certificate/preview')
+  async previewMyCertificate(@Request() req, @Res() res: Response) {
+    return this.studentsService.previewMyCertificate(req.user.userId, req.user.role, res);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('STUDENT', 'COLLEGE_ADMIN', 'SUPER_ADMIN')
+  @Get('plans/:planId/certificate')
+  async getCertificateMeta(@Request() req, @Param('planId') planId: string) {
+    return this.studentsService.getCertificateMeta(
+      planId,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
