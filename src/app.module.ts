@@ -8,6 +8,7 @@ import { AdminModule } from './modules/admin/admin.module'
 import { CollegesModule } from './modules/colleges/colleges.module'
 import { InviteModule } from './modules/invite/invite.module'
 import { CollegeAdminModule } from './modules/college-admin/college-admin.module'
+import { CertificatesModule } from './modules/certificates/certificates.module'
 import { StorageModule } from './common/storage.module'
 // import { UsersModule } from './modules/users/users.module'
 // import { ReviewersModule } from './modules/reviewers/reviewers.module'
@@ -16,7 +17,6 @@ import { StorageModule } from './common/storage.module'
 // import { MilestonesModule } from './modules/milestones/milestones.module'
 // import { SubmissionsModule } from './modules/submissions/submissions.module'
 // import { ReviewsModule } from './modules/reviews/reviews.module'
-// import { CertificatesModule } from './modules/certificates/certificates.module'
 // import { NotificationsModule } from './modules/notifications/notifications.module'
 // import { AuditLogsModule } from './modules/audit-logs/audit-logs.module'
 
@@ -40,6 +40,7 @@ import { StorageModule } from './common/storage.module'
     CollegesModule,
     InviteModule,
     CollegeAdminModule,
+    CertificatesModule,
     // UsersModule,
     // ReviewersModule,
     // InternshipsModule,
@@ -47,7 +48,6 @@ import { StorageModule } from './common/storage.module'
     // MilestonesModule,
     // SubmissionsModule,
     // ReviewsModule,
-    // CertificatesModule,
     // NotificationsModule,
     // AuditLogsModule,
   ],

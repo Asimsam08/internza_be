@@ -1,0 +1,17 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="internzaBg" x1="22" y1="16" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1A2B4B"/>
+      <stop offset="0.55" stop-color="#15233d"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="108" height="108" rx="32" fill="url(#internzaBg)"/>
+
+  <!-- I pillar -->
+  <path d="M56 36C56 32.6863 58.6863 30 62 30H66C69.3137 30 72 32.6863 72 36V92C72 95.3137 69.3137 98 66 98H62C58.6863 98 56 95.3137 56 92V36Z" fill="white"/>
+
+  <!-- Verification badge -->
+  <circle cx="94" cy="94" r="18" fill="#10B981"/>
+  <path d="M86 94L92 100L103 88" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -61,6 +61,142 @@ export class CollegeAdminService {
     })
   }
 
+  async getCohortDetail(collegeId: string, cohortId: string, user: any) {
+    this.collegesService.assertCollegeAccess(user, collegeId)
+    const cohort = await this.prisma.cohort.findFirst({
+      where: { id: cohortId, collegeId },
+      include: {
+        template: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            duration: true,
+            difficulty: true,
+            category: true,
+            skills: true,
+            techStack: true,
+            templateTasks: {
+              orderBy: { order: 'asc' },
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                order: true,
+                durationDays: true,
+              },
+            },
+          },
+        },
+        _count: { select: { members: true } },
+        plans: { select: { isCompleted: true } },
+        reviewers: {
+          include: {
+            reviewer: {
+              select: { firstName: true, lastName: true, user: { select: { email: true } } },
+            },
+          },
+        },
+      },
+    })
+    if (!cohort) throw new NotFoundException('Cohort not found')
+
+    const completed = cohort.plans.filter((p) => p.isCompleted).length
+    const total = cohort._count.members
+
+    return {
+      id: cohort.id,
+      name: cohort.name,
+      status: cohort.status,
+      startDate: cohort.startDate,
+      endDate: cohort.endDate,
+      studentsTotal: total,
+      studentsCompleted: completed,
+      template: cohort.template,
+      reviewers: cohort.reviewers.map((r) => ({
+        id: r.reviewerId,
+        name: `${r.reviewer.firstName} ${r.reviewer.lastName}`.trim(),
+        email: r.reviewer.user.email,
+      })),
+    }
+  }
+
+  async getCohortStudents(
+    collegeId: string,
+    cohortId: string,
+    user: any,
+    search?: string,
+  ) {
+    this.collegesService.assertCollegeAccess(user, collegeId)
+    const cohort = await this.prisma.cohort.findFirst({
+      where: { id: cohortId, collegeId },
+    })
+    if (!cohort) throw new NotFoundException('Cohort not found')
+
+    const searchFilter = search?.trim()
+      ? {
+          OR: [
+            { user: { email: { contains: search.trim(), mode: 'insensitive' as const } } },
+            { student: { firstName: { contains: search.trim(), mode: 'insensitive' as const } } },
+            { student: { lastName: { contains: search.trim(), mode: 'insensitive' as const } } },
+          ],
+        }
+      : {}
+
+    const members = await this.prisma.cohortMember.findMany({
+      where: { cohortId, ...searchFilter },
+      include: {
+        user: { select: { id: true, email: true } },
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            university: true,
+            internshipPlans: {
+              where: { cohortId },
+              take: 1,
+              select: {
+                id: true,
+                status: true,
+                isCompleted: true,
+                completedWeeks: true,
+                totalWeeks: true,
+                startedAt: true,
+                completedAt: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    return members.map((m) => {
+      const plan = m.student?.internshipPlans?.[0]
+      return {
+        id: m.id,
+        userId: m.user.id,
+        email: m.user.email,
+        firstName: m.student?.firstName ?? '',
+        lastName: m.student?.lastName ?? '',
+        university: m.student?.university ?? null,
+        externalStudentId: m.externalStudentId,
+        plan: plan
+          ? {
+              id: plan.id,
+              status: plan.status,
+              isCompleted: plan.isCompleted,
+              completedWeeks: plan.completedWeeks,
+              totalWeeks: plan.totalWeeks,
+              startedAt: plan.startedAt,
+              completedAt: plan.completedAt,
+            }
+          : null,
+      }
+    })
+  }
+
   async createCohort(collegeId: string, dto: CreateCohortDto, user: any) {
     this.collegesService.assertCollegeAccess(user, collegeId)
 
