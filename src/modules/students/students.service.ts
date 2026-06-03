@@ -440,40 +440,28 @@ export class StudentsService {
   }
 
   async getStudentDashboard(userId: string, requestedPlanId?: string) {
-    const planInclude = {
-      cohort: {
-        select: {
-          id: true,
-          name: true,
-          college: { select: { name: true, logoUrl: true } },
-        },
-      },
-      planProjects: {
-        include: {
-          template: true,
-          milestones: {
-            include: {
-              tasks: {
-                include: {
-                  submission: {
-                    include: {
-                      review: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    } as const;
-
     const student = await this.prisma.studentProfile.findUnique({
       where: { userId },
-      include: {
+      select: {
         internshipPlans: {
           where: { isCompleted: false },
-          include: planInclude,
+          select: {
+            id: true,
+            cohortId: true,
+            durationType: true,
+            cohort: {
+              select: {
+                id: true,
+                name: true,
+                college: { select: { name: true, logoUrl: true } },
+              },
+            },
+            planProjects: {
+              take: 1,
+              orderBy: { order: 'asc' },
+              select: { template: { select: { title: true } } },
+            },
+          },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -523,7 +511,7 @@ export class StudentsService {
     const selfPlan = incompletePlans.find((p) => !p.cohortId);
     const defaultPlan = cohortPlan ?? incompletePlans[0];
 
-    const activePlan =
+    const activePlanMeta =
       requestedPlanId && incompletePlans.some((p) => p.id === requestedPlanId)
         ? incompletePlans.find((p) => p.id === requestedPlanId)!
         : defaultPlan;
@@ -532,40 +520,25 @@ export class StudentsService {
     const canEnrollSelfPlan = !hasSelfPlan;
     const hasMultiplePlans = incompletePlans.length > 1;
 
-    let cohortContext: Record<string, unknown> | null = null;
-    if (activePlan.cohortId) {
-      const cohort = await this.prisma.cohort.findUnique({
-        where: { id: activePlan.cohortId },
-        include: {
-          college: { select: { name: true, logoUrl: true } },
-          _count: { select: { members: true } },
-          members: { select: { userId: true } },
-        },
-      });
-      if (cohort) {
-        const memberIndex = cohort.members.findIndex((m) => m.userId === userId);
-        const weekMs = 7 * 24 * 60 * 60 * 1000;
-        const elapsed = Date.now() - cohort.startDate.getTime();
-        const totalWeeks = Math.max(1, Math.ceil((cohort.endDate.getTime() - cohort.startDate.getTime()) / weekMs));
-        const currentWeek = Math.min(totalWeeks, Math.max(1, Math.floor(elapsed / weekMs) + 1));
-        cohortContext = {
-          cohortId: cohort.id,
-          name: cohort.name,
-          collegeName: cohort.college.name,
-          collegeLogoUrl: resolveStoragePublicUrl(cohort.college.logoUrl),
-          weekLabel: `Week ${currentWeek}/${totalWeeks}`,
-          rank: memberIndex >= 0 ? `#${memberIndex + 1}/${cohort._count.members}` : null,
-        };
-      }
-    }
+    await this.checkAndUnlockNextProject(activePlanMeta.id);
 
-    // Auto-unlock next project if all tasks in current project are approved
-    await this.checkAndUnlockNextProject(activePlan.id);
-
-    // Re-fetch plan after potential unlock
     const refreshedPlan = await this.prisma.internshipPlan.findUnique({
-      where: { id: activePlan.id },
+      where: { id: activePlanMeta.id },
       include: {
+        cohort: {
+          select: {
+            id: true,
+            name: true,
+            startDate: true,
+            endDate: true,
+            college: { select: { name: true, logoUrl: true } },
+            _count: { select: { members: true } },
+            members: {
+              select: { userId: true, createdAt: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         planProjects: {
           include: {
             template: true,
@@ -575,7 +548,7 @@ export class StudentsService {
                   include: {
                     submission: {
                       include: {
-                        review: true,
+                        review: { select: { feedback: true, status: true } },
                       },
                     },
                   },
@@ -589,11 +562,37 @@ export class StudentsService {
     });
 
     if (!refreshedPlan) {
-      throw new NotFoundException('Plan not found after refresh');
+      throw new NotFoundException('Plan not found');
     }
 
-    // Get project progress
-    const projectProgress = await this.getProjectsProgress(refreshedPlan.id);
+    let cohortContext: Record<string, unknown> | null = null;
+    if (refreshedPlan.cohortId && refreshedPlan.cohort) {
+      const cohort = refreshedPlan.cohort;
+      const memberIndex = cohort.members.findIndex((m) => m.userId === userId);
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      const elapsed = Date.now() - cohort.startDate.getTime();
+      const totalWeeks = Math.max(
+        1,
+        Math.ceil((cohort.endDate.getTime() - cohort.startDate.getTime()) / weekMs),
+      );
+      const currentWeek = Math.min(
+        totalWeeks,
+        Math.max(1, Math.floor(elapsed / weekMs) + 1),
+      );
+      cohortContext = {
+        cohortId: cohort.id,
+        name: cohort.name,
+        collegeName: cohort.college.name,
+        collegeLogoUrl: resolveStoragePublicUrl(cohort.college.logoUrl),
+        weekLabel: `Week ${currentWeek}/${totalWeeks}`,
+        rank:
+          memberIndex >= 0
+            ? `#${memberIndex + 1}/${cohort._count.members}`
+            : null,
+      };
+    }
+
+    const projectProgress = this.buildProjectsProgressFromPlan(refreshedPlan);
 
     // Build project info array
     const projects = refreshedPlan.planProjects.map((pp) => ({
@@ -732,11 +731,11 @@ export class StudentsService {
 
     return {
       planId: refreshedPlan.id,
-      activePlanId: activePlan.id,
+      activePlanId: activePlanMeta.id,
       availablePlans,
       canEnrollSelfPlan,
       hasMultiplePlans,
-      activePlanType: activePlan.cohortId ? ('cohort' as const) : ('self' as const),
+      activePlanType: activePlanMeta.cohortId ? ('cohort' as const) : ('self' as const),
       cohort: cohortContext,
       durationType: refreshedPlan.durationType,
       totalWeeks: refreshedPlan.totalWeeks,
@@ -1657,9 +1656,39 @@ export class StudentsService {
   }
 
   /**
-   * Calculate progress for all projects in a plan
-   * Returns detailed progress metrics for each project
+   * Calculate progress for all projects in a plan (in-memory; avoids extra DB round-trip).
    */
+  private buildProjectsProgressFromPlan(
+    plan: {
+      planProjects: Array<{
+        id: string;
+        template: { title: string };
+        milestones: Array<{ tasks: Array<{ status: string }> }>;
+      }>;
+    },
+  ) {
+    return plan.planProjects.map((project) => {
+      const allTasks = project.milestones.flatMap((m) => m.tasks);
+      const approvedTasks = allTasks.filter((t) => t.status === 'APPROVED');
+      const isCompleted =
+        allTasks.length > 0 && allTasks.every((t) => t.status === 'APPROVED');
+      const approvalRate =
+        allTasks.length > 0
+          ? Math.round((approvedTasks.length / allTasks.length) * 100)
+          : 0;
+
+      return {
+        projectId: project.id,
+        projectName: project.template.title,
+        completedTasks: approvedTasks.length,
+        totalTasks: allTasks.length,
+        isCompleted,
+        approvalRate,
+      };
+    });
+  }
+
+  /** @deprecated Use buildProjectsProgressFromPlan when plan is already loaded */
   private async getProjectsProgress(planId: string) {
     const projects = await this.prisma.planProject.findMany({
       where: { planId },
@@ -1674,21 +1703,7 @@ export class StudentsService {
       orderBy: { order: 'asc' },
     });
 
-    return projects.map((project) => {
-      const allTasks = project.milestones.flatMap((m) => m.tasks);
-      const approvedTasks = allTasks.filter((t) => t.status === 'APPROVED');
-      const isCompleted = allTasks.length > 0 && allTasks.every((t) => t.status === 'APPROVED');
-      const approvalRate = allTasks.length > 0 ? Math.round((approvedTasks.length / allTasks.length) * 100) : 0;
-
-      return {
-        projectId: project.id,
-        projectName: project.template.title,
-        completedTasks: approvedTasks.length,
-        totalTasks: allTasks.length,
-        isCompleted,
-        approvalRate,
-      };
-    });
+    return this.buildProjectsProgressFromPlan({ planProjects: projects });
   }
 
   /**

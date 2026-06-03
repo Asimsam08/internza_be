@@ -94,23 +94,27 @@ export class CollegesService {
   async getCollegeStats(collegeId: string) {
     const college = await this.prisma.college.findUnique({
       where: { id: collegeId },
-      include: {
-        cohorts: {
-          include: {
-            members: true,
-            plans: { select: { isCompleted: true } },
-          },
-        },
+      select: {
+        id: true,
+        name: true,
+        domain: true,
+        logoUrl: true,
       },
     })
     if (!college) throw new NotFoundException('College not found')
 
-    const activeCohorts = college.cohorts.filter((c) => c.status === 'ACTIVE').length
-    const totalStudents = college.cohorts.reduce((s, c) => s + c.members.length, 0)
-    const completedPlans = college.cohorts.reduce(
-      (s, c) => s + c.plans.filter((p) => p.isCompleted).length,
-      0,
-    )
+    const [activeCohorts, totalStudents, completedPlans] = await Promise.all([
+      this.prisma.cohort.count({
+        where: { collegeId, status: 'ACTIVE' },
+      }),
+      this.prisma.cohortMember.count({
+        where: { cohort: { collegeId } },
+      }),
+      this.prisma.internshipPlan.count({
+        where: { cohort: { collegeId }, isCompleted: true },
+      }),
+    ])
+
     const completionPct =
       totalStudents > 0 ? Math.round((completedPlans / totalStudents) * 100) : 0
 
