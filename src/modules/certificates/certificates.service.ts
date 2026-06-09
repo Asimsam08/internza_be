@@ -295,6 +295,7 @@ export class CertificatesService {
             cohort: {
               include: {
                 college: true,
+                template: true,
                 reviewers: { include: { reviewer: true } },
               },
             },
@@ -318,8 +319,11 @@ export class CertificatesService {
       throw new NotFoundException('Certificate not found')
     }
     const studentName = `${cert.plan.student.firstName} ${cert.plan.student.lastName}`.trim()
-    const programName = this.resolveProgramName(cert.plan.planProjects)
+    const programName =
+      cert.plan.cohort?.template?.title ?? this.resolveProgramName(cert.plan.planProjects)
     const reviewerNames = this.resolveReviewerNames(cert.plan)
+    const durationLabel = this.resolveDurationLabel(cert.plan)
+    const skills = this.resolveSkills(cert.plan)
     return {
       valid: cert.status === 'ISSUED',
       status: cert.status,
@@ -329,6 +333,8 @@ export class CertificatesService {
       studentName,
       programName,
       reviewerNames,
+      durationLabel,
+      skills,
       issuedAt: cert.issuedAt.toISOString(),
       variant: cert.plan.cohortId ? 'cohort' : 'self-paced',
       collegeName: cert.plan.cohort?.college?.name,
@@ -350,6 +356,10 @@ export class CertificatesService {
       studentName: isCohort ? 'Sample Student' : 'Jordan Martinez',
       programName: isCohort ? 'Internship Program' : 'Cloud & DevOps Engineering Track',
       reviewerNames: isCohort ? 'Program Reviewers' : 'Alex Rivera',
+      durationLabel: isCohort ? '16-week cohort program' : '12-week self-paced program',
+      skills: isCohort
+        ? ['React', 'TypeScript', 'Node.js', 'PostgreSQL']
+        : ['Microservices', 'Docker', 'AWS', 'CI/CD'],
       issuedAt: new Date().toISOString(),
       variant: isCohort ? ('cohort' as const) : ('self-paced' as const),
       collegeName: isCohort ? 'Partner Institution' : undefined,
@@ -614,6 +624,36 @@ export class CertificatesService {
     if (!planProjects.length) return 'Internship Program'
     if (planProjects.length === 1) return planProjects[0].template.title
     return planProjects.map((p) => p.template.title).join(' · ')
+  }
+
+  private resolveDurationLabel(plan: {
+    cohortId: string | null
+    durationType: string
+    totalWeeks: number
+  }): string {
+    if (plan.cohortId) {
+      return `${plan.totalWeeks}-week cohort program`
+    }
+    const durationLabel = plan.durationType.replace(/_/g, ' ').toLowerCase()
+    return `${durationLabel} self-paced program`
+  }
+
+  private resolveSkills(plan: {
+    cohort?: { template?: { skills: string[] } | null } | null
+    planProjects?: { template: { skills: string[] } }[]
+  }): string[] {
+    const unique = new Set<string>()
+    for (const pp of plan.planProjects ?? []) {
+      for (const skill of pp.template?.skills ?? []) {
+        if (skill.trim()) unique.add(skill.trim())
+      }
+    }
+    if (!unique.size && plan.cohort?.template?.skills?.length) {
+      for (const skill of plan.cohort.template.skills) {
+        if (skill.trim()) unique.add(skill.trim())
+      }
+    }
+    return [...unique]
   }
 
   private async readCertificateFile(certificateUrl: string): Promise<Buffer> {
