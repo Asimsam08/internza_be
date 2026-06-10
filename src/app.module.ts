@@ -9,6 +9,7 @@ import { CollegesModule } from './modules/colleges/colleges.module'
 import { InviteModule } from './modules/invite/invite.module'
 import { CollegeAdminModule } from './modules/college-admin/college-admin.module'
 import { CertificatesModule } from './modules/certificates/certificates.module'
+import { WaitlistModule } from './modules/waitlist/waitlist.module'
 import { StorageModule } from './common/storage.module'
 // import { UsersModule } from './modules/users/users.module'
 // import { ReviewersModule } from './modules/reviewers/reviewers.module'
@@ -41,6 +42,7 @@ import { StorageModule } from './common/storage.module'
     InviteModule,
     CollegeAdminModule,
     CertificatesModule,
+    WaitlistModule,
     // UsersModule,
     // ReviewersModule,
     // InternshipsModule,
