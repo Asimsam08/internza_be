@@ -481,3 +481,12 @@ enum AuditAction {
   UNPUBLISH
   UNLOCK
 }
+
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+}
